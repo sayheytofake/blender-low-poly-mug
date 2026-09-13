@@ -23,7 +23,7 @@ def select_only(obj):
 
 def aim_at(obj, target=(0, 0, 0)):
     direction = Vector(target) - obj.location
-    obj.rotation_euler = direction.to_track_quat("-Z", "Y").euler
+    obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
 def make_material(name, color, roughness=0.65, metallic=0.0):
