@@ -7,15 +7,24 @@ from mathutils import Vector
 OUTPUT_DIR = tempfile.gettempdir()
 PNG_PATH = os.path.join(OUTPUT_DIR, "low_poly_mug.png")
 BLEND_PATH = os.path.join(OUTPUT_DIR, "low_poly_mug.blend")
+VIDEO_PATH = os.path.join(OUTPUT_DIR, "low_poly_mug.mp4")
+FRAME_DIR = os.path.join(OUTPUT_DIR, "low_poly_mug_frames")
+
+FPS = 30
+DURATION_SECONDS = 5
+TOTAL_FRAMES = FPS * DURATION_SECONDS
+
 
 def select_only(obj):
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
+
 def aim_at(obj, target=(0, 0, 0)):
     direction = Vector(target) - obj.location
     obj.rotation_euler = direction.to_track_quat("-Z", "Y").euler
+
 
 def make_material(name, color, roughness=0.65, metallic=0.0):
     mat = bpy.data.materials.new(name)
@@ -32,6 +41,7 @@ def make_material(name, color, roughness=0.65, metallic=0.0):
     bsdf.inputs["Metallic"].default_value = metallic
     return mat
 
+
 def set_flat_shading(obj):
     for poly in obj.data.polygons:
         poly.use_smooth = False
@@ -39,9 +49,11 @@ def set_flat_shading(obj):
         obj.data.use_auto_smooth = False
     obj.data.update()
 
+
 def clear_scene():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
+
 
 def set_render_engine(scene):
     # Blender 4.x uses EEVEE Next; older versions use EEVEE.
@@ -54,6 +66,7 @@ def set_render_engine(scene):
 
     scene.render.engine = "CYCLES"
     return "CYCLES"
+
 
 def inspect_render(path):
     img = bpy.data.images.load(path, check_existing=False)
@@ -85,6 +98,7 @@ def inspect_render(path):
         bpy.data.images.remove(img)
 
     return mean, stddev, ratio
+
 
 # -------------------------
 # Scene setup
@@ -141,7 +155,7 @@ curve.bevel_resolution = 4
 curve.fill_mode = 'FULL'
 
 spline = curve.splines.new('BEZIER')
-spline.bezier_points.add(3)  # total 4 points
+spline.bezier_points.add(3)
 
 coords = [
     (0.48, 0.00, 0.38),
@@ -213,8 +227,10 @@ scene.render.resolution_x = 640
 scene.render.resolution_y = 480
 scene.render.resolution_percentage = 100
 scene.render.image_settings.file_format = 'PNG'
-scene.render.filepath = PNG_PATH
 scene.render.film_transparent = False
+scene.render.fps = FPS
+scene.frame_start = 1
+scene.frame_end = TOTAL_FRAMES
 
 try:
     scene.view_settings.view_transform = "Standard"
@@ -239,14 +255,12 @@ else:
         pass
 
 # -------------------------
-# First render
+# First render for inspection
 # -------------------------
+scene.render.filepath = PNG_PATH
 bpy.ops.render.render(write_still=True)
-print(f"Render saved to: {PNG_PATH}")
+print(f"Preview render saved to: {PNG_PATH}")
 
-# -------------------------
-# Automated inspection + fix/rerender if needed
-# -------------------------
 mean, stddev, ratio = inspect_render(PNG_PATH)
 print(f"Initial inspection: mean_luma={mean:.3f}, stddev={stddev:.3f}, non_bright_ratio={ratio:.2f}")
 
@@ -269,7 +283,50 @@ else:
     print("Automated inspection passed: render is nonblank with visible contrast.")
 
 # -------------------------
+# Animation: smooth 360-degree mug rotation
+# -------------------------
+# Parent the mug body and handle to an empty so the entire mug rotates together.
+bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0, 0, 0.575))
+mug_rig = bpy.context.object
+mug_rig.name = "Mug_Rotation_Rig"
+
+mug.parent = mug_rig
+handle.parent = mug_rig
+
+mug_rig.rotation_mode = 'XYZ'
+mug_rig.rotation_euler = (0, 0, 0)
+mug_rig.keyframe_insert(data_path="rotation_euler", frame=1, index=2)
+
+mug_rig.rotation_euler[2] = math.radians(360)
+mug_rig.keyframe_insert(data_path="rotation_euler", frame=TOTAL_FRAMES, index=2)
+
+# Make the rotation linear so it moves at a constant cinematic speed.
+if mug_rig.animation_data and mug_rig.animation_data.action:
+    for fcurve in mug_rig.animation_data.action.fcurves:
+        for keyframe in fcurve.keyframe_points:
+            keyframe.interpolation = 'LINEAR'
+
+# -------------------------
+# Video output
+# -------------------------
+os.makedirs(FRAME_DIR, exist_ok=True)
+scene.render.image_settings.file_format = 'FFMPEG'
+scene.render.ffmpeg.format = 'MPEG4'
+scene.render.ffmpeg.codec = 'H264'
+scene.render.ffmpeg.constant_rate_factor = 'MEDIUM'
+scene.render.ffmpeg.fps = FPS
+scene.render.ffmpeg.audio_codec = 'NONE'
+scene.render.filepath = VIDEO_PATH
+
+scene.frame_set(1)
+print(f"Rendering {TOTAL_FRAMES} frames at {FPS} FPS...")
+bpy.ops.render.render(animation=True)
+print(f"Video saved to: {VIDEO_PATH}")
+
+# -------------------------
 # Save Blender file
 # -------------------------
+scene.render.image_settings.file_format = 'PNG'
+scene.render.filepath = PNG_PATH
 bpy.ops.wm.save_as_mainfile(filepath=BLEND_PATH)
 print(f"Blender file saved to: {BLEND_PATH}")
