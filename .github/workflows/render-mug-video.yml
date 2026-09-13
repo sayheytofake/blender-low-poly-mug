@@ -1,0 +1,32 @@
+name: Render Blender Mug Video
+
+on:
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Blender and FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender ffmpeg
+
+      - name: Render MP4 with Blender
+        run: |
+          blender -b --python low_poly_mug.py
+          mkdir -p output
+          cp /tmp/low_poly_mug.mp4 output/low_poly_mug.mp4
+          cp /tmp/low_poly_mug.blend output/low_poly_mug.blend
+
+      - name: Upload rendered files
+        uses: actions/upload-artifact@v4
+        with:
+          name: low-poly-mug-video
+          path: output/
+          if-no-files-found: error
+          retention-days: 7
